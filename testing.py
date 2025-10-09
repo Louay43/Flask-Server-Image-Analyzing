@@ -231,7 +231,7 @@ def run_detection(path: str):
     with open(export_filename, "r") as f:
         play_json = json.load(f)
 
-    return play_json, drawn
+    return play_json
 
 
 # # --- Local Testing ---
