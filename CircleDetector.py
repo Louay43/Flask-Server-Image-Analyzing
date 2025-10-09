@@ -293,6 +293,6 @@ def circle_detector(path_name: str, clr_image= np.ndarray):
     return home_positions, away_positions, all_positions, radius
 
 
-index = 8
-path = f'images/play{index}.png'
-circle_detector(path, image_clearer(path))
+# index = 8
+# path = f'images/play{index}.png'
+# circle_detector(path, image_clearer(path))

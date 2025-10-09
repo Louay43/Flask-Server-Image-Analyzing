@@ -422,6 +422,6 @@ def run_detection(image_path: str):
     # print(json.dumps(play_json, indent=2))
     return play_json 
 
-index = 0
-path = f'images/play{index}.png'
-run_detection(path)
+# index = 0
+# path = f'images/play{index}.png'
+# run_detection(path)

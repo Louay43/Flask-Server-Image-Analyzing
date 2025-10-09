@@ -316,13 +316,13 @@ def run_detection():
 
 
 
-index = 0    
-path = f'images/play{index}.png'
-img_cleared = image_clearer(path)
-homePositions, awayPositions, circlePositions, circleRadius = circle_detector(path, img_cleared)
+# index = 0    
+# path = f'images/play{index}.png'
+# img_cleared = image_clearer(path)
+# homePositions, awayPositions, circlePositions, circleRadius = circle_detector(path, img_cleared)
 
 
-run_detection()
+# run_detection()
 
 # cv2.waitKey(0)
 # cv2.destroyAllWindows()
