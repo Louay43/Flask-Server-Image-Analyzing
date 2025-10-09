@@ -200,8 +200,6 @@ def export_to_play_json_from_contours(homePositions, awayPositions, circleRadius
     with open(filename, "w") as f:
         json.dump(play_data, f, indent=2)
 
-    print(f"✅ Exported {len(play_data['homePlayerData'])} home and {len(play_data['awayPlayerData'])} away players to {filename}")
-
 
 def run_detection():
     global homePositions, awayPositions, circlePositions, circleRadius
@@ -310,7 +308,7 @@ def run_detection():
         color = circle_colors.get(ci, (0, 255, 0))
         cv2.circle(output, (cx, cy), int(radius * 1.2), color, -1)
 
-    cv2.imshow("Separated Routes", output)
+    # cv2.imshow("Separated Routes", output)
     export_to_play_json_from_contours(homePositions, awayPositions, circleRadius, endpoints, contours, output.shape)
 
 
@@ -326,5 +324,5 @@ homePositions, awayPositions, circlePositions, circleRadius = circle_detector(pa
 
 run_detection()
 
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+# cv2.waitKey(0)
+# cv2.destroyAllWindows()

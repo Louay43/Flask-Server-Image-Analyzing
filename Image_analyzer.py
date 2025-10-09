@@ -199,7 +199,7 @@ def closest_line_to_circle(circle, runs):
                 run_idx = i
     return closest_line, run_idx, closest_dist
 
-def export_to_play_json(circle_run_data, play_name="Offensive Play 1", filename="play.json"):
+def export_to_play_json(circle_run_data, homePositions=None, awayPositions=None, play_name="Offensive Play 1", filename="play.json"):
     play_data = {
         "playName": play_name,
         "homePlayerData": [],
@@ -211,54 +211,50 @@ def export_to_play_json(circle_run_data, play_name="Offensive Play 1", filename=
     def round9(val):
         return round(float(val), 9)
 
-    for data in circle_run_data:
-        cx, cy, r = data["circle"]
-
-        waypoints = []
-        if data["run_lines"]:  # Only add waypoints if this circle has runs
-            # Start with circle center
-            waypoints.append({
-                "x": round9(cx),
-                "y": round9(cy),
-                "z": 0.0
-            })
-
-            # Add all run line endpoints
-            for (x1, y1), (x2, y2) in data["run_lines"]:
-                waypoints.append({"x": round9(x1), "y": round9(y1), "z": 0.0})
-                waypoints.append({"x": round9(x2), "y": round9(y2), "z": 0.0})
-
-            # Remove duplicates
-            seen = set()
-            unique_waypoints = []
-            for wp in waypoints:
-                tup = (wp["x"], wp["y"], wp["z"])
-                if tup not in seen:
-                    seen.add(tup)
-                    unique_waypoints.append(wp)
-            waypoints = unique_waypoints
-
-        player_entry = {
-            "position": {
-                "x": round9(cx),
-                "y": round9(cy),
-                "z": 0.0
-            },
+    def make_player_entry(cx, cy, waypoints):
+        return {
+            "position": {"x": round9(cx), "y": round9(cy), "z": 0.0},
             "run": {
                 "runType": 0,
-                "waypoints": waypoints,  # Now [] if no run
+                "waypoints": waypoints,
                 "maxSpeed": 5.0,
                 "endStyleIndex": 0
             }
         }
 
-        play_data["homePlayerData"].append(player_entry)
+    for data in circle_run_data:
+        cx, cy, r = data["circle"]
+        waypoints = []
+        if data["run_lines"]:
+            waypoints.append({"x": round9(cx), "y": round9(cy), "z": 0.0})
+            for (x1, y1), (x2, y2) in data["run_lines"]:
+                waypoints.append({"x": round9(x1), "y": round9(y1), "z": 0.0})
+                waypoints.append({"x": round9(x2), "y": round9(y2), "z": 0.0})
+            # Remove duplicates
+            seen = set()
+            unique = []
+            for wp in waypoints:
+                tup = (wp["x"], wp["y"], wp["z"])
+                if tup not in seen:
+                    seen.add(tup)
+                    unique.append(wp)
+            waypoints = unique
 
-    # Save JSON
+        player_entry = make_player_entry(cx, cy, waypoints)
+
+        # Assign to home or away based on detected groups
+        if homePositions is not None and any(abs(cx - hp[0]) < 0.02 and abs(cy - hp[1]) < 0.02 for hp in homePositions):
+            play_data["homePlayerData"].append(player_entry)
+        elif awayPositions is not None and any(abs(cx - ap[0]) < 0.02 and abs(cy - ap[1]) < 0.02 for ap in awayPositions):
+            play_data["awayPlayerData"].append(player_entry)
+        else:
+            play_data["homePlayerData"].append(player_entry)
+
     with open(filename, "w") as f:
         json.dump(play_data, f, indent=2)
 
     return play_data
+
 
 def run_detection(image_path: str):
     # Load image
@@ -291,7 +287,8 @@ def run_detection(image_path: str):
     # Usage after filtering lines:
     runs = group_connected_lines_no_branch(all_lines)
     # Each element in runs is a list of Line objects forming a continuous run
-    positions, radius = circle_detector(image_path, img)  # radius is a single int
+    homePositions, awayPositions, positions, radius = circle_detector(image_path, img)
+
 
     colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255), (255, 0, 255)]
     i = 0
@@ -299,9 +296,9 @@ def run_detection(image_path: str):
         # print(f"--------------Run {i} with {len(run)} lines:---------------")
         for line in run:
             cv2.line(img, (line.x1, line.y1), (line.x2, line.y2), colors[i % len(colors)], 5)
-            # print(f"Line {i}: Line from ({line.x1}, {line.y1}) to ({line.x2}, {line.y2}), length: {line.length:.1f}, angle: {line.angle:.1f}°")
-            # cv2.imshow(f"Detected Lines {i}", img)
+            print(f"Line {i}: Line from ({line.x1}, {line.y1}) to ({line.x2}, {line.y2}), length: {line.length:.1f}, angle: {line.angle:.1f}°")
         i += 1
+    # cv2.imshow(f"Detected Lines {i}", img)
 
 
     # -------------------------------
@@ -321,9 +318,6 @@ def run_detection(image_path: str):
             # Only consider this run if distance <= radius * multiplier
             if min_d <= r * RADIUS_MULTIPLIER:
                 assignments.append((min_d, ci, ri))
-
-
-
 
 
     # Sort by distance so closest matches are assigned first
@@ -355,7 +349,7 @@ def run_detection(image_path: str):
             cv2.putText(img, "No Run", (cx + 5, cy - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (128, 128, 128), 1)
 
-
+    # cv2.imshow("Detected Circles + Runs", img)
     h, w = img.shape[:2]
     circle_run_data = []
 
@@ -382,9 +376,6 @@ def run_detection(image_path: str):
 
         circle_run_data.append(circle_info)
 
-
-
-# 
 
     #now loop throught circle_run_data and put each circle and its lines on a new clear image, with each circle having the same color as its run lines
     # Blank image
@@ -413,10 +404,24 @@ def run_detection(image_path: str):
             x2, y2 = int(x2n * w), int(y2n * h)
             cv2.line(cleared_image, (x1, y1), (x2, y2), color, 2)
 
+    # Flip the image around the x-axis (vertically)
+    cleared_image = cv2.flip(cleared_image, 0)
+    
     # cv2.imshow("Cleared Circles + Runs", cleared_image)
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()
 
-    play_json = export_to_play_json(circle_run_data, play_name="Offensive Play 2", filename="offensive_play.json")
+    play_json = export_to_play_json(
+        circle_run_data,
+        homePositions=homePositions,
+        awayPositions=awayPositions,
+        play_name="Offensive Play 2",
+        filename="offensiveSS_play.json"
+    )
+
     # print(json.dumps(play_json, indent=2))
     return play_json 
+
+index = 0
+path = f'images/play{index}.png'
+run_detection(path)

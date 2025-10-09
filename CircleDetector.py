@@ -99,6 +99,49 @@ def detectDuplicates(circles, min_dist_threshold=100):
             unique_circles.append((x, y, r))
     return unique_circles
 
+def detect_teams_by_color(img, circles, radius):
+    """
+    Detects team affiliation for each detected circle based on dominant color inside it.
+    Returns: (home_positions, away_positions, all_positions)
+    """
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    circle_colors = []
+
+    for (x, y) in circles:
+        mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+        cv2.circle(mask, (x, y), int(radius * 0.8), 255, -1)
+        mean_color = cv2.mean(hsv, mask=mask)
+        hue = mean_color[0]
+        circle_colors.append(hue)
+
+    if not circle_colors:
+        return [], [], []
+
+    # Cluster hues into 2 groups (teams)
+    hues = np.array(circle_colors).reshape(-1, 1).astype(np.float32)
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 1.0)
+    flags = cv2.KMEANS_RANDOM_CENTERS
+    _, labels, centers = cv2.kmeans(hues, 2, None, criteria, 10, flags)
+
+    # Decide which team is home vs away (e.g., by hue ordering)
+    teamA_hue, teamB_hue = centers.flatten()
+    teamA_positions, teamB_positions = [], []
+
+    for i, (x, y) in enumerate(circles):
+        if labels[i][0] == 0:
+            teamA_positions.append((x, y))
+        else:
+            teamB_positions.append((x, y))
+
+    # Optional: assign home = larger group
+    if len(teamA_positions) >= len(teamB_positions):
+        home, away = teamA_positions, teamB_positions
+    else:
+        home, away = teamB_positions, teamA_positions
+
+    return home, away, circles
+
+
 def autoTuneRadius(gray, min_r_start=2, max_r_end=50, expected_circles=11):
     """
     Finds the best min/max radius combination for HoughCircles.
@@ -108,8 +151,8 @@ def autoTuneRadius(gray, min_r_start=2, max_r_end=50, expected_circles=11):
     best_score = float("inf")
     best_circles = None
     radiuses = []
-    for min_r in range(min_r_start, max_r_end-5, 2):  # step by 2 to reduce loops
-        for max_r in range(min_r+5, max_r_end+1, 2):
+    for min_r in range(min_r_start, max_r_end-5, 4):  # step by 2 to reduce loops
+        for max_r in range(min_r+5, max_r_end+1, 4):
             circles = cv2.HoughCircles(
                 gray,
                 cv2.HOUGH_GRADIENT,
@@ -213,14 +256,28 @@ class PlayerDetectorWrapper:
             # print(f"Contours chosen with score {score_contours}")
             return pos_contours, field_resized, radiusContour
 
+
+
 def circle_detector(path_name: str, clr_image= np.ndarray):
     img = cv2.imread(path_name)   
     wrapper = PlayerDetectorWrapper(expected_players=30)
     positions, field_resized, radius = wrapper.detect_players(img)
 
-    for (x, y) in positions:
+    home_positions, away_positions, all_positions = detect_teams_by_color(field_resized, positions, radius)
+
+    # Optional visualization:
+    for (x, y) in home_positions:
         cv2.circle(field_resized, (x, y), radius, (0, 255, 0), 2)
-        cv2.circle(field_resized, (x, y), 2, (0, 0, 255), 3)
+    for (x, y) in away_positions:
+        cv2.circle(field_resized, (x, y), radius, (255, 0, 0), 2)
+
+
+
+    # for (x, y) in positions:
+    #     cv2.circle(field_resized, (x, y), radius, (0, 255, 0), 2)
+    #     cv2.circle(field_resized, (x, y), 2, (0, 0, 255), 3)
+    
+
 
     cleared_image = clr_image.copy()
     for (x, y) in positions:
@@ -233,8 +290,9 @@ def circle_detector(path_name: str, clr_image= np.ndarray):
     # cv2.imwrite("images/line_detection_result.png", cleared_image)
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()
-    return positions, radius
+    return home_positions, away_positions, all_positions, radius
 
-# path = 'images/play4.png'
 
-# circle_detector(path, image_clearer(path))
+index = 8
+path = f'images/play{index}.png'
+circle_detector(path, image_clearer(path))
