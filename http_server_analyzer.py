@@ -23,6 +23,7 @@ else:
 # Import our image analysis modules
 try:
     from Image_analyzer import run_detection # type: ignore
+    from testing import run_detection as run_detection_testing
     from CircleDetector import circle_detector # type: ignore
     from ImageClearer import image_clearer # type: ignore
     print("Successfully imported image analysis modules")
@@ -64,7 +65,15 @@ def process_image_from_array(image_array):
             print("Starting image analysis...")
             
             # Use the run_detection function from our Image_analyzer module
-            results = run_detection(temp_path)
+            # Run both analyzers
+            results_image = run_detection(temp_path)
+            results_testing = run_detection_testing(temp_path)
+
+            results = {
+                "image_analyzer": results_image,
+                "testing_analyzer": results_testing
+            }
+
             
             print(f"Analysis completed: {results}")
             return results
