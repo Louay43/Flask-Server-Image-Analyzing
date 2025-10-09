@@ -20,17 +20,18 @@ def classify_contour(cnt):
     if 0.7 < circularity <= 1.2 and 0.8 < aspect < 1.2 and 50 < area < 1500:
         return "circle"
 
+    # --- X detection ---
     if circularity < 0.6 and 0.8 < aspect < 1.3 and 100 < area < 3000:
         hull = cv2.convexHull(cnt, returnPoints=False)
         if hull is not None and len(hull) > 3:
-            defects = cv2.convexityDefects(cnt, hull)
-            if defects is not None and len(defects) >= 2:
-                return "x"
+            try:
+                defects = cv2.convexityDefects(cnt, hull)
+                if defects is not None and len(defects) >= 2:
+                    return "x"
+            except cv2.error:
+                # skip malformed contour safely
+                return "unknown"
 
-    if aspect > 2.0 or aspect < 0.5 or area > 1500:
-        return "path"
-
-    return "unknown"
 
 
 def get_image_just_lines(path: str, circlePositions, circleRadius):
