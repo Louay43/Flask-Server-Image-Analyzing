@@ -34,8 +34,8 @@ def classify_contour(cnt):
 
     return "unknown"
 
-def get_image_just_lines():
-    img = img_cleared
+def get_image_just_lines(path: str):
+    img = image_clearer(path)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     # Threshold or edge detection
     edges = cv2.Canny(gray, 80, 200)
@@ -201,10 +201,10 @@ def export_to_play_json_from_contours(homePositions, awayPositions, circleRadius
         json.dump(play_data, f, indent=2)
 
 
-def run_detection():
+def run_detection(path: str):
     global homePositions, awayPositions, circlePositions, circleRadius
 
-    img = get_image_just_lines()
+    img = get_image_just_lines(path)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     contours = filter_contours(gray)
 
