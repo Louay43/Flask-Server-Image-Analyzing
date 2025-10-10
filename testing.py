@@ -20,18 +20,17 @@ def classify_contour(cnt):
     if 0.7 < circularity <= 1.2 and 0.8 < aspect < 1.2 and 50 < area < 1500:
         return "circle"
 
-    # --- X detection ---
     if circularity < 0.6 and 0.8 < aspect < 1.3 and 100 < area < 3000:
         hull = cv2.convexHull(cnt, returnPoints=False)
         if hull is not None and len(hull) > 3:
-            try:
-                defects = cv2.convexityDefects(cnt, hull)
-                if defects is not None and len(defects) >= 2:
-                    return "x"
-            except cv2.error:
-                # skip malformed contour safely
-                return "unknown"
+            defects = cv2.convexityDefects(cnt, hull)
+            if defects is not None and len(defects) >= 2:
+                return "x"
 
+    if aspect > 2.0 or aspect < 0.5 or area > 1500:
+        return "path"
+
+    return "unknown"
 
 
 def get_image_just_lines(path: str, circlePositions, circleRadius):
@@ -183,6 +182,10 @@ def run_detection(path: str):
     img_cleared = image_clearer(path)
     homePositions, awayPositions, circlePositions, circleRadius = circle_detector(path, img_cleared)
 
+    if img_cleared is None or not len(circlePositions):
+        print("[Error] Could not detect circles or load image properly.")
+        return None, np.zeros((800, 800, 3), dtype=np.uint8)
+
     img = get_image_just_lines(path, circlePositions, circleRadius)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     contours = filter_contours(gray)
@@ -202,22 +205,22 @@ def run_detection(path: str):
                     start_point, end_point = p1, p2
         endpoints.append((tuple(start_point.astype(int)), tuple(end_point.astype(int))))
 
-    # --- Draw everything ---
+    # --- Draw everything safely ---
     drawn = img.copy()
+
     for cnt in contours:
         cv2.drawContours(drawn, [cnt], -1, (255, 0, 255), 2)
 
-    # Draw endpoints
     for (start, end) in endpoints:
         cv2.circle(drawn, start, 5, (0, 255, 0), -1)
         cv2.circle(drawn, end, 5, (255, 0, 0), -1)
         cv2.line(drawn, start, end, (0, 255, 255), 1)
 
-    # Draw circles
     for (cx, cy) in circlePositions:
         cv2.circle(drawn, (int(cx), int(cy)), int(circleRadius), (255, 255, 255), 2)
 
     export_filename = os.path.splitext(os.path.basename(path))[0] + "_testing.json"
+
     export_to_play_json_from_contours(
         homePositions,
         awayPositions,
@@ -235,13 +238,14 @@ def run_detection(path: str):
     return play_json
 
 
-# # --- Local Testing ---
-# if __name__ == "__main__":
-#     index = 0
-#     path = f"C:\\Users\\louay\\Desktop\\Python\\images\\play{index}.png"
 
-#     play_json, drawn = run_detection(path)
+# --- Local Testing ---
+if __name__ == "__main__":
+    index = 8
+    path = f"C:\\Users\\louay\\Desktop\\Python\\images\\play{index}.png"
 
-#     cv2.imshow("Testing Visualization", drawn)
-#     cv2.waitKey(0)
-#     cv2.destroyAllWindows()
+    play_json, drawn = run_detection(path)
+
+    cv2.imshow("Testing Visualization", drawn)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
