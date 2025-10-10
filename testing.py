@@ -17,20 +17,37 @@ def classify_contour(cnt):
     x, y, w, h = cv2.boundingRect(cnt)
     aspect = w / float(h)
 
+    # --- Circle detection ---
     if 0.7 < circularity <= 1.2 and 0.8 < aspect < 1.2 and 50 < area < 1500:
         return "circle"
 
+    # --- X detection (improved stability) ---
     if circularity < 0.6 and 0.8 < aspect < 1.3 and 100 < area < 3000:
-        hull = cv2.convexHull(cnt, returnPoints=False)
-        if hull is not None and len(hull) > 3:
-            defects = cv2.convexityDefects(cnt, hull)
+
+        epsilon = 0.01 * cv2.arcLength(cnt, True)
+        cnt_smooth = cv2.approxPolyDP(cnt, epsilon, True)
+
+
+        hull = cv2.convexHull(cnt_smooth, returnPoints=False)
+        if hull is None or len(hull) < 4:
+            return "unknown"
+
+        hull = hull.flatten()
+        if len(hull) < 3 or not np.all(np.diff(np.sort(hull)) >= 0):
+            return "unknown"
+
+        try:
+            defects = cv2.convexityDefects(cnt_smooth, hull.reshape(-1, 1))
             if defects is not None and len(defects) >= 2:
                 return "x"
-
-    if aspect > 2.0 or aspect < 0.5 or area > 1500:
-        return "path"
+        except cv2.error:
+            # Do NOT discard all — fallback to shape reasoning
+            if 0.5 < aspect < 1.5 and 200 < area < 2000:
+                return "x"  # likely an X even if convex check fails
+            return "unknown"
 
     return "unknown"
+
 
 
 def get_image_just_lines(path: str, circlePositions, circleRadius):
@@ -235,13 +252,13 @@ def run_detection(path: str):
     with open(export_filename, "r") as f:
         play_json = json.load(f)
 
-    return play_json
+    return play_json, drawn
 
 
 
 # --- Local Testing ---
 if __name__ == "__main__":
-    index = 8
+    index = 0
     path = f"C:\\Users\\louay\\Desktop\\Python\\images\\play{index}.png"
 
     play_json, drawn = run_detection(path)
