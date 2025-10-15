@@ -136,15 +136,15 @@ def filter_contours(gray: np.ndarray):
     return merge_similar_contours(contours)
 
 
-def export_to_play_json_from_contours(homePositions, awayPositions, circleRadius, endpoints, contours, img_shape, play_name="Offensive Play 2", filename="offensive_play.json"):
-    """Create the standard play JSON file."""
+def export_to_play_json_from_contours(homePositions,awayPositions,circleRadius,contour_data,contours,img_shape,play_name="Offensive Play 2",filename="offensive_play.json",):
+    """Export JSON where start = near player circle, using the same logic as run_detection."""
     h, w = img_shape[:2]
 
     def norm(x, y):
         return round(x / w, 9), round(1.0 - (y / h), 9)
 
-    def round9(val):
-        return round(float(val), 9)
+    def round9(v):
+        return round(float(v), 9)
 
     def build_player_entry(cx, cy):
         return {
@@ -161,24 +161,48 @@ def export_to_play_json_from_contours(homePositions, awayPositions, circleRadius
     }
 
     def attach_run(player_entry, cx, cy):
-        closest = None
-        closest_d = float("inf")
-        for i, (s, e) in enumerate(endpoints):
-            for ep in (s, e):
-                d = np.linalg.norm(np.array(ep) - np.array([cx, cy]))
-                if d < closest_d and d < circleRadius * 3:
-                    closest, closest_d = i, d
 
-        if closest is not None:
-            cnt = contours[closest].reshape(-1, 2)
-            s, e = endpoints[closest]
-            if np.linalg.norm(cnt[0] - np.array(s)) > np.linalg.norm(cnt[-1] - np.array(s)):
-                cnt = np.flip(cnt, 0)
-            waypoints = [
-                {"x": round9(nx), "y": round9(ny), "z": 0.0}
-                for (nx, ny) in [norm(x, y) for (x, y) in cnt]
-            ]
-            player_entry["run"]["waypoints"] = waypoints
+        contour_obj = None
+        for contour_obj_candidate in contour_data:
+            circle_pos = contour_obj_candidate['closest_circle']
+            # Check if this contour was assigned to this exact circle
+            if (circle_pos is not None and circle_pos[0] == cx and circle_pos[1] == cy):
+                 contour_obj = contour_obj_candidate
+        
+        if contour_obj is None:
+            return  
+
+        s = contour_obj['start_point']
+        e = contour_obj['end_point']
+        cnt = contour_obj['contour'].reshape(-1, 2)
+
+        # Find the indices of start and end points in the contour
+        start_idx = None
+        end_idx = None
+        
+        for i, point in enumerate(cnt):
+            if tuple(point.astype(int)) == s:
+                start_idx = i
+            if tuple(point.astype(int)) == e:
+                end_idx = i
+        
+        # Extract only the path from start to end (not the full loop)
+        if start_idx is not None and end_idx is not None:
+            if start_idx <= end_idx:
+                # Normal case: start comes before end in the contour
+                path_points = cnt[start_idx:end_idx + 1]
+            else:
+                # Wrap around case: start comes after end, so we go around
+                path_points = np.concatenate([cnt[start_idx:], cnt[:end_idx + 1]])
+        else:
+            # Fallback: use the full contour if we can't find exact matches
+            path_points = cnt
+        
+        # normalize contour points (only the path from start to end)
+        waypoints = [
+            {"x": round9(nx), "y": round9(ny), "z": 0.0} for (nx, ny) in [norm(x, y) for (x, y) in path_points]
+        ]
+        player_entry["run"]["waypoints"] = waypoints
 
     for (cx, cy) in homePositions:
         player = build_player_entry(cx, cy)
@@ -208,41 +232,122 @@ def run_detection(path: str):
     contours = filter_contours(gray)
 
     output = np.zeros_like(img)
-    endpoints = []
+    
+    # Use list of objects to store comprehensive contour information
+    contour_data = []
+    # Track which circle is assigned to which contour and the distance
+    circle_assignments = {}  # circle_pos -> {'contour_index': i, 'distance': dist}
 
-    for cnt in contours:
+    for i, cnt in enumerate(contours):
         pts = cnt.reshape(-1, 2)
+
+        # Find farthest two points along the contour
         max_dist = 0
-        start_point = end_point = pts[0]
+        p1_final, p2_final = pts[0], pts[0]
         for p1 in pts[::max(1, len(pts) // 50)]:
             for p2 in pts[::max(1, len(pts) // 50)]:
                 dist = np.linalg.norm(p1 - p2)
                 if dist > max_dist:
                     max_dist = dist
-                    start_point, end_point = p1, p2
-        endpoints.append((tuple(start_point.astype(int)), tuple(end_point.astype(int))))
+                    p1_final, p2_final = p1, p2
 
-    # --- Draw everything safely ---
+        # Find the closest circle to either of the two endpoints
+        min_dist_to_any_circle = float('inf')
+        nearest_circle = None
+        
+        for circle_pos in circlePositions:
+            dist_p1_to_circle = np.linalg.norm(np.array(p1_final) - np.array(circle_pos))
+            dist_p2_to_circle = np.linalg.norm(np.array(p2_final) - np.array(circle_pos))
+            min_dist_this_circle = min(dist_p1_to_circle, dist_p2_to_circle)
+            
+            if min_dist_this_circle < min_dist_to_any_circle:
+                min_dist_to_any_circle = min_dist_this_circle
+                nearest_circle = circle_pos
+
+        # Check if this circle is already assigned to another contour
+        circle_key = tuple(nearest_circle)
+        if circle_key in circle_assignments:
+            # Circle already assigned - check if this contour is closer
+            if min_dist_to_any_circle < circle_assignments[circle_key]['distance']:
+                # This contour is closer, reassign the circle
+                old_contour_idx = circle_assignments[circle_key]['contour_index']
+                # Mark the old contour as having no circle
+                contour_data[old_contour_idx]['closest_circle'] = None
+                contour_data[old_contour_idx]['distance_to_circle'] = float('inf')
+                
+                # Assign circle to current contour
+                circle_assignments[circle_key] = {'contour_index': i, 'distance': min_dist_to_any_circle}
+            else:
+                # Current contour is farther, don't assign any circle to it
+                nearest_circle = None
+                min_dist_to_any_circle = float('inf')
+        else:
+            # Circle not yet assigned, assign it to this contour
+            circle_assignments[circle_key] = {'contour_index': i, 'distance': min_dist_to_any_circle}
+
+        # Among the two farthest points, pick the one closer to that nearest circle as the START
+        if nearest_circle is not None:
+            dist_to_circle_p1 = np.linalg.norm(np.array(p1_final) - np.array(nearest_circle))
+            dist_to_circle_p2 = np.linalg.norm(np.array(p2_final) - np.array(nearest_circle))
+
+            if dist_to_circle_p1 < dist_to_circle_p2:
+                start_point, end_point = p1_final, p2_final
+            else:
+                start_point, end_point = p2_final, p1_final
+        else:
+            # No circle assigned, just use the first point as start
+            start_point, end_point = p1_final, p2_final
+
+        # Create comprehensive contour object
+        contour_obj = {
+            'index': i,
+            'contour': cnt,
+            'start_point': tuple(start_point.astype(int)),
+            'end_point': tuple(end_point.astype(int)),
+            'closest_circle': nearest_circle,
+            'distance_to_circle': min_dist_to_any_circle
+        }
+        
+        contour_data.append(contour_obj)
+
+    # --- Draw visualization ---
     drawn = img.copy()
 
     for cnt in contours:
         cv2.drawContours(drawn, [cnt], -1, (255, 0, 255), 2)
 
-    for (start, end) in endpoints:
-        cv2.circle(drawn, start, 5, (0, 255, 0), -1)
-        cv2.circle(drawn, end, 5, (255, 0, 0), -1)
+    # Draw endpoints for each contour with labels
+    for contour_obj in contour_data:
+        contour_idx = contour_obj['index']
+        start = contour_obj['start_point']
+        end = contour_obj['end_point']
+        closest_circle = contour_obj['closest_circle']
+        if closest_circle is None:
+            continue  # Skip contours without assigned circles
+        
+        cv2.circle(drawn, start, 5, (0, 255, 0), -1)   # Green = Start
+        cv2.circle(drawn, end, 5, (0, 0, 255), -1)     # Red = End
         cv2.line(drawn, start, end, (0, 255, 255), 1)
+        
+        # Add labels for better identification
+        cv2.putText(drawn, f"S{contour_idx}", (start[0] - 15, start[1] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+        cv2.putText(drawn, f"E{contour_idx}", (end[0] - 15, end[1] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+        
+        # Draw line to closest circle to show relationship
+        cv2.line(drawn, start, tuple(map(int, closest_circle)), (255, 255, 0), 1)
 
     for (cx, cy) in circlePositions:
         cv2.circle(drawn, (int(cx), int(cy)), int(circleRadius), (255, 255, 255), 2)
 
-    export_filename = os.path.splitext(os.path.basename(path))[0] + "_testing.json"
+    export_filename = "json/" + os.path.splitext(os.path.basename(path))[0] + "_testing.json"
 
     export_to_play_json_from_contours(
         homePositions,
         awayPositions,
         circleRadius,
-        endpoints,
+        contour_data,
         contours,
         drawn.shape,
         play_name="Offensive Play (testing)",
@@ -257,12 +362,12 @@ def run_detection(path: str):
 
 
 # --- Local Testing ---
-if __name__ == "__main__":
-    index = 0
-    path = f"C:\\Users\\louay\\Desktop\\Python\\images\\play{index}.png"
+# if __name__ == "__main__":
+#     index = 0
+#     path = f"C:\\Users\\louay\\Desktop\\Python\\images\\play{index}.png"
 
-    play_json, drawn = run_detection(path)
+#     play_json, drawn = run_detection(path)
 
-    cv2.imshow("Testing Visualization", drawn)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+#     cv2.imshow("Testing Visualization", drawn)
+#     cv2.waitKey(0)
+#     cv2.destroyAllWindows()
