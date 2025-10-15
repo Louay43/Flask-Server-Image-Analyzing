@@ -342,7 +342,8 @@ def run_detection(path: str):
         cv2.circle(drawn, (int(cx), int(cy)), int(circleRadius), (255, 255, 255), 2)
 
     export_filename = "json/" + os.path.splitext(os.path.basename(path))[0] + "_testing.json"
-
+    os.makedirs("json", exist_ok=True)  # ensure folder exists
+    
     export_to_play_json_from_contours(
         homePositions,
         awayPositions,
